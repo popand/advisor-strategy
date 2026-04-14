@@ -1,36 +1,43 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Advisor Strategy Demo
 
-## Getting Started
+A live comparison of three Claude configurations on any research query:
 
-First, run the development server:
+| Variant | Model | Cost |
+|---------|-------|------|
+| Sonnet solo | claude-sonnet-4-6 | $ |
+| Sonnet + Opus advisor | claude-sonnet-4-6 + claude-opus-4-6 advisor | $$ |
+| Opus solo | claude-opus-4-6 | $$$ |
+
+The advisor strategy pairs a cost-effective executor model with a frontier advisor that provides guidance on complex decisions without calling tools or producing output directly. This demo lets you see the cost/quality tradeoff empirically, in real time.
+
+## What the metrics mean
+
+- **Cost** — estimated cost using current Anthropic pricing
+- **Advisor calls** — how many times the executor escalated to the Opus advisor
+- **Quality score** — rated 1–10 by a separate Opus judge on: source depth, reasoning, completeness, accuracy
+- **Quality %** — advisor score as a percentage of Opus score (the ceiling)
+
+## Setup
 
 ```bash
+git clone https://github.com/popand/advisor-strategy
+cd advisor-strategy
+npm install
+cp .env.example .env.local
+# Add your ANTHROPIC_API_KEY to .env.local
+# Optionally add BRAVE_API_KEY for live web search
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Notes
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Web search falls back to a placeholder if `BRAVE_API_KEY` is not set. The agents still run and produce output using their training knowledge.
+- The advisor feature requires beta access: `anthropic-beta: advisor-tool-2026-03-01`
+- All three agents run in parallel — expect the full comparison to take 30–90 seconds
 
-## Learn More
+## References
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- [The Advisor Strategy — Anthropic Blog](https://claude.com/blog/the-advisor-strategy)
+- [Anthropic API Docs](https://docs.anthropic.com)
