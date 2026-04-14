@@ -1,65 +1,226 @@
-import Image from "next/image";
+// app/page.tsx
+"use client";
+
+import { useState, useCallback } from "react";
+import { ResearchForm } from "@/components/ResearchForm";
+import { ComparisonGrid } from "@/components/ComparisonGrid";
+import { QualityChart } from "@/components/QualityChart";
+import { SummaryBar } from "@/components/SummaryBar";
+import type {
+  FinalMetrics,
+  QualityScore,
+  SSEEvent,
+  JudgeResponse,
+} from "@/lib/types";
+
+interface ColumnState {
+  tokens: string[];
+  advisorCalls: number[];
+  toolCalls: string[];
+  metrics: FinalMetrics | null;
+  quality: QualityScore | null;
+  isRunning: boolean;
+  output: string; // accumulated full text for judge
+}
+
+const emptyColumn = (): ColumnState => ({
+  tokens: [],
+  advisorCalls: [],
+  toolCalls: [],
+  metrics: null,
+  quality: null,
+  isRunning: false,
+  output: "",
+});
+
+type Variant = "baseline" | "advisor" | "opus";
 
 export default function Home() {
+  const [baseline, setBaseline] = useState<ColumnState>(emptyColumn());
+  const [advisor, setAdvisor] = useState<ColumnState>(emptyColumn());
+  const [opus, setOpus] = useState<ColumnState>(emptyColumn());
+  const [isRunning, setIsRunning] = useState(false);
+
+  const setColumn = useCallback(
+    (variant: Variant, updater: (prev: ColumnState) => ColumnState) => {
+      if (variant === "baseline") setBaseline(updater);
+      else if (variant === "advisor") setAdvisor(updater);
+      else setOpus(updater);
+    },
+    []
+  );
+
+  async function streamVariant(
+    variant: Variant,
+    query: string
+  ): Promise<string> {
+    setColumn(variant, (prev) => ({ ...prev, isRunning: true }));
+
+    const res = await fetch(`/api/research/${variant}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+    });
+
+    if (!res.body) {
+      setColumn(variant, (prev) => ({ ...prev, isRunning: false }));
+      return "";
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let fullOutput = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const data = line.slice(6).trim();
+
+        let event: SSEEvent;
+        try {
+          event = JSON.parse(data) as SSEEvent;
+        } catch {
+          continue;
+        }
+
+        if (event.type === "token") {
+          fullOutput += event.content;
+          setColumn(variant, (prev) => ({
+            ...prev,
+            tokens: [...prev.tokens, event.content],
+            output: prev.output + event.content,
+          }));
+        } else if (event.type === "advisor_call") {
+          setColumn(variant, (prev) => ({
+            ...prev,
+            advisorCalls: [...prev.advisorCalls, event.callNumber],
+          }));
+        } else if (event.type === "tool_call") {
+          setColumn(variant, (prev) => ({
+            ...prev,
+            toolCalls: [...prev.toolCalls, event.name],
+          }));
+        } else if (event.type === "done") {
+          setColumn(variant, (prev) => ({
+            ...prev,
+            metrics: event.finalMetrics,
+            isRunning: false,
+          }));
+        } else if (event.type === "error") {
+          console.error(`[${variant}] error:`, event.message);
+          setColumn(variant, (prev) => ({ ...prev, isRunning: false }));
+        }
+      }
+    }
+
+    setColumn(variant, (prev) => ({ ...prev, isRunning: false }));
+    return fullOutput;
+  }
+
+  const handleSubmit = useCallback(
+    async (query: string) => {
+      setIsRunning(true);
+      setBaseline(emptyColumn());
+      setAdvisor(emptyColumn());
+      setOpus(emptyColumn());
+
+      // Run all three in parallel
+      const [baselineOut, advisorOut, opusOut] = await Promise.all([
+        streamVariant("baseline", query),
+        streamVariant("advisor", query),
+        streamVariant("opus", query),
+      ]);
+
+      // Run quality judge
+      try {
+        const judgeRes = await fetch("/api/judge", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query,
+            baselineOutput: baselineOut,
+            advisorOutput: advisorOut,
+            opusOutput: opusOut,
+          }),
+        });
+        if (judgeRes.ok) {
+          const scores = (await judgeRes.json()) as JudgeResponse;
+          setBaseline((prev) => ({ ...prev, quality: scores.baseline }));
+          setAdvisor((prev) => ({ ...prev, quality: scores.advisor }));
+          setOpus((prev) => ({ ...prev, quality: scores.opus }));
+        }
+      } catch (err) {
+        console.error("Judge failed:", err);
+      }
+
+      setIsRunning(false);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <div className="min-h-screen flex flex-col">
+      {/* Header */}
+      <header className="border-b border-divider px-6 py-5">
+        <div className="max-w-7xl mx-auto">
+          <h1 className="font-mono text-lg font-medium tracking-tight text-content">
+            advisor-strategy
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="font-mono text-xs text-content-muted mt-1">
+            Sonnet solo · Sonnet + Opus advisor · Opus solo — cost &amp; quality comparison
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+      </header>
+
+      {/* Query input */}
+      <div className="border-b border-divider px-6 py-5">
+        <div className="max-w-7xl mx-auto">
+          <ResearchForm onSubmit={handleSubmit} isRunning={isRunning} />
+        </div>
+      </div>
+
+      {/* Main content */}
+      <main className="flex-1 px-6 py-8">
+        <div className="max-w-7xl mx-auto space-y-8">
+          <ComparisonGrid
+            baseline={baseline}
+            advisor={advisor}
+            opus={opus}
+          />
+
+          {/* Quality chart */}
+          <div className="bg-surface border border-divider shadow-stamped rounded-lg p-6">
+            <h2 className="font-mono text-xs text-content-muted uppercase tracking-wider mb-6">
+              Quality Breakdown
+            </h2>
+            <QualityChart
+              scores={{
+                baseline: baseline.quality,
+                advisor: advisor.quality,
+                opus: opus.quality,
+              }}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+          </div>
         </div>
       </main>
+
+      {/* Summary bar */}
+      <SummaryBar
+        baselineMetrics={baseline.metrics}
+        advisorMetrics={advisor.metrics}
+        opusMetrics={opus.metrics}
+        advisorQuality={advisor.quality}
+        opusQuality={opus.quality}
+      />
     </div>
   );
 }
