@@ -2,7 +2,9 @@
 
 A live benchmark comparing three model configurations on the same research query — streaming in parallel, with full cost, latency, and quality metrics.
 
-![Advisor Strategy — three-column comparison dashboard](public/screenshot-hero.png)
+![Agents running in parallel — tool calls, advisor escalations, and streaming output](public/screenshot-inprogress-6.png)
+
+*Three agents running simultaneously. The center column shows an advisor call badge mid-stream — Sonnet escalating to Opus for a complex decision before continuing its research loop.*
 
 ## What it shows
 
@@ -35,9 +37,9 @@ The executor stays in control. The advisor provides targeted judgment exactly wh
 
 ---
 
-## Full dashboard
+## Full results
 
-![Full dashboard with quality breakdown and summary](public/screenshot-full.png)
+![All three agents complete with quality scores and dimension breakdown](public/screenshot-complete.png)
 
 The bottom panel shows per-dimension quality scores (source depth, reasoning, completeness, accuracy) judged by a separate Opus call after all three runs complete. The summary bar compares cost side-by-side.
 
