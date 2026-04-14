@@ -20,7 +20,8 @@ export function calculateCost(
   inputTokens: number,
   outputTokens: number,
   cacheReadTokens: number,
-  advisorTokens: number,
+  advisorInputTokens: number,
+  advisorOutputTokens: number,
   model: "sonnet" | "opus"
 ): number {
   const p = PRICING[model];
@@ -29,9 +30,10 @@ export function calculateCost(
     (outputTokens / 1_000_000) * p.outputPerMToken +
     (cacheReadTokens / 1_000_000) * p.cacheReadPerMToken;
 
-  // Advisor tokens are always billed at Opus rates
+  // Advisor tokens billed at Opus rates — input and output separately
   const advisorCost =
-    (advisorTokens / 1_000_000) * PRICING.opus.inputPerMToken;
+    (advisorInputTokens / 1_000_000) * PRICING.opus.inputPerMToken +
+    (advisorOutputTokens / 1_000_000) * PRICING.opus.outputPerMToken;
 
   return executorCost + advisorCost;
 }
@@ -52,6 +54,8 @@ export function emptyMetrics(): MetricsSnapshot {
     inputTokens: 0,
     outputTokens: 0,
     cacheReadTokens: 0,
+    advisorInputTokens: 0,
+    advisorOutputTokens: 0,
     advisorTokens: 0,
     advisorCalls: 0,
     toolCalls: 0,

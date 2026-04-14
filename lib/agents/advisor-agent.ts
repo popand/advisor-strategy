@@ -1,5 +1,5 @@
 import {
-  RESEARCH_SYSTEM_PROMPT,
+  ADVISOR_SYSTEM_PROMPT,
   AGENT_TOOLS,
   executeWebSearch,
   executeWebFetch,
@@ -42,13 +42,13 @@ export async function runAdvisorAgent(
     const requestBody = {
       model: "claude-sonnet-4-6",
       max_tokens: 4096,
-      system: RESEARCH_SYSTEM_PROMPT,
+      system: ADVISOR_SYSTEM_PROMPT,
       tools: [
         ...AGENT_TOOLS,
         {
           type: "advisor_20260301",
           name: "advisor",
-          advisor_model: "claude-opus-4-6",
+          model: "claude-opus-4-6",
           max_uses: 5,
         },
       ],
@@ -69,7 +69,8 @@ export async function runAdvisorAgent(
     let buffer = "";
     let stopReason: string | null = null;
     const contentBlocks: Record<number, { type: string; name?: string; id?: string; input?: string; advisorTokens?: number }> = {};
-    let advisorTokensThisTurn = 0;
+    let advisorInputThisTurn = 0;
+    let advisorOutputThisTurn = 0;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -101,14 +102,14 @@ export async function runAdvisorAgent(
           const block = event.content_block as { type: string; name?: string; id?: string };
           contentBlocks[idx] = { type: block.type, name: block.name, id: block.id, input: "" };
 
-          if (block.type === "tool_use" && block.name !== "advisor") {
-            metrics.toolCalls++;
-            send({ type: "tool_call", name: block.name ?? "unknown" });
-          }
-          if (block.type === "tool_use" && block.name === "advisor") {
+          // Advisor fires as "server_tool_use" not "tool_use"
+          if (block.type === "server_tool_use" && block.name === "advisor") {
             advisorCallCount++;
             metrics.advisorCalls = advisorCallCount;
             send({ type: "advisor_call", callNumber: advisorCallCount });
+          }
+          if (block.type === "tool_use" && block.name !== "advisor") {
+            metrics.toolCalls++;
           }
         }
 
@@ -117,31 +118,43 @@ export async function runAdvisorAgent(
           const delta = event.delta as { type: string; text?: string; partial_json?: string };
           if (delta.type === "text_delta" && delta.text) {
             send({ type: "token", content: delta.text });
+            if (contentBlocks[idx]) {
+              contentBlocks[idx].input = (contentBlocks[idx].input ?? "") + delta.text;
+            }
           }
           if (delta.type === "input_json_delta" && contentBlocks[idx]) {
             contentBlocks[idx].input = (contentBlocks[idx].input ?? "") + (delta.partial_json ?? "");
-          }
-          // Advisor usage delta — the API reports advisor tokens inline
-          if ((delta as Record<string, unknown>).type === "advisor_usage_delta") {
-            advisorTokensThisTurn += ((delta as Record<string, unknown>).advisor_tokens as number) ?? 0;
           }
         }
 
         if (event.type === "message_delta") {
           const delta = event.delta as { stop_reason?: string };
           stopReason = delta.stop_reason ?? null;
-          const usage = (event as { usage?: { output_tokens?: number } }).usage;
+          // Advisor tokens are in message_delta.usage.iterations as type="advisor_message"
+          type Iteration = { type: string; input_tokens?: number; output_tokens?: number };
+          const usage = (event as { usage?: { output_tokens?: number; iterations?: Iteration[] } }).usage;
           if (usage?.output_tokens) metrics.outputTokens += usage.output_tokens;
+          if (usage?.iterations) {
+            for (const iter of usage.iterations) {
+              if (iter.type === "advisor_message") {
+                advisorInputThisTurn += iter.input_tokens ?? 0;
+                advisorOutputThisTurn += iter.output_tokens ?? 0;
+              }
+            }
+          }
         }
       }
     }
 
-    metrics.advisorTokens += advisorTokensThisTurn;
+    metrics.advisorInputTokens += advisorInputThisTurn;
+    metrics.advisorOutputTokens += advisorOutputThisTurn;
+    metrics.advisorTokens = metrics.advisorInputTokens + metrics.advisorOutputTokens;
     metrics.estimatedCostUsd = calculateCost(
       metrics.inputTokens,
       metrics.outputTokens,
       metrics.cacheReadTokens,
-      metrics.advisorTokens,
+      metrics.advisorInputTokens,
+      metrics.advisorOutputTokens,
       "sonnet"
     );
     send({ type: "metrics", data: { ...metrics } });
@@ -151,20 +164,36 @@ export async function runAdvisorAgent(
       (b) => b.type === "tool_use" && b.name !== "advisor"
     );
 
-    if (stopReason === "end_turn" || toolBlocks.length === 0) {
+    // Only break on end_turn — toolBlocks can be empty when the advisor fired
+    // without regular tool calls (e.g. advisor-only turn), which is valid
+    if (stopReason === "end_turn") {
       break;
     }
 
-    // Rebuild assistant message for next turn
-    const assistantContent: Array<{ type: string; id?: string; name?: string; input?: unknown }> = [];
+    // If no tool blocks AND no advisor calls this turn, nothing to execute — break to avoid infinite loop
+    const advisorBlocksThisTurn = Object.values(contentBlocks).filter(
+      (b) => b.type === "server_tool_use" && b.name === "advisor"
+    );
+    if (toolBlocks.length === 0 && advisorBlocksThisTurn.length === 0) {
+      break;
+    }
+
+    // Rebuild assistant message for next turn.
+    // Include text and tool_use blocks only — server_tool_use/advisor_tool_result
+    // are server-managed and must NOT be echoed back in messages.
+    const assistantContent: Array<{ type: string; id?: string; name?: string; input?: unknown; text?: string }> = [];
     for (const [, block] of Object.entries(contentBlocks)) {
-      if (block.type === "tool_use") {
+      if (block.type === "text") {
+        assistantContent.push({ type: "text", text: block.input ?? "" }); // input field holds accumulated text
+      } else if (block.type === "tool_use") {
         let parsedInput: unknown = {};
         try { parsedInput = JSON.parse(block.input ?? "{}"); } catch { /* ok */ }
         assistantContent.push({ type: "tool_use", id: block.id, name: block.name, input: parsedInput });
       }
     }
-    messages.push({ role: "assistant", content: assistantContent });
+    if (assistantContent.length > 0) {
+      messages.push({ role: "assistant", content: assistantContent });
+    }
 
     const toolResults: Array<{ type: string; tool_use_id: string; content: string }> = [];
     for (const block of toolBlocks) {
@@ -172,8 +201,14 @@ export async function runAdvisorAgent(
       const input = (() => {
         try { return JSON.parse(block.input ?? "{}"); } catch { return {}; }
       })();
-      if (block.name === "web_search") result = await executeWebSearch(input.query ?? "");
-      if (block.name === "web_fetch") result = await executeWebFetch(input.url ?? "");
+      if (block.name === "web_search") {
+        send({ type: "tool_call", name: "web_search", input: input.query ?? "" });
+        result = await executeWebSearch(input.query ?? "");
+      }
+      if (block.name === "web_fetch") {
+        send({ type: "tool_call", name: "web_fetch", input: input.url ?? "" });
+        result = await executeWebFetch(input.url ?? "");
+      }
       toolResults.push({ type: "tool_result", tool_use_id: block.id!, content: result });
     }
     messages.push({ role: "user", content: toolResults });

@@ -43,7 +43,6 @@ export async function runBaselineAgent(
       if (event.type === "content_block_start" &&
           event.content_block.type === "tool_use") {
         metrics.toolCalls++;
-        send({ type: "tool_call", name: event.content_block.name });
       }
 
       if (event.type === "message_delta") {
@@ -69,6 +68,7 @@ export async function runBaselineAgent(
       metrics.outputTokens,
       metrics.cacheReadTokens,
       0,
+      0,
       "sonnet"
     );
     send({ type: "metrics", data: { ...metrics } });
@@ -85,9 +85,11 @@ export async function runBaselineAgent(
       let result = "";
       if (toolBlock.name === "web_search") {
         const input = toolBlock.input as { query: string };
+        send({ type: "tool_call", name: "web_search", input: input.query });
         result = await executeWebSearch(input.query);
       } else if (toolBlock.name === "web_fetch") {
         const input = toolBlock.input as { url: string };
+        send({ type: "tool_call", name: "web_fetch", input: input.url });
         result = await executeWebFetch(input.url);
       }
       toolResults.push({

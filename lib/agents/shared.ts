@@ -12,6 +12,27 @@ export const RESEARCH_SYSTEM_PROMPT = `You are a rigorous research assistant. Wh
 
 Be thorough, cite your sources, and surface genuine tradeoffs. Do not pad or repeat yourself.`;
 
+// Advisor-specific system prompt — extends the base with explicit escalation guidance
+export const ADVISOR_SYSTEM_PROMPT = `You are a rigorous research assistant. When given a research query:
+
+1. Use the advisor tool FIRST before searching — call it to get expert guidance on how to approach the research
+2. Search for 3-5 authoritative sources using the web_search tool
+3. Fetch the full content of the most relevant pages using the web_fetch tool
+4. If you encounter conflicting information or complex architectural tradeoffs, call the advisor again to help synthesize
+5. Synthesize your findings into a structured research report with:
+   - Executive summary (2-3 sentences)
+   - Key findings (bullet points with sources cited inline)
+   - Tradeoffs and caveats
+   - Recommended next steps or conclusions
+
+The advisor is your expert consultant for complex decisions. Use it for:
+- Planning your research approach
+- Resolving conflicting evidence
+- Evaluating architectural or strategic tradeoffs
+- Ensuring your synthesis is rigorous and complete
+
+Be thorough, cite your sources, and surface genuine tradeoffs. Do not pad or repeat yourself.`;
+
 export const AGENT_TOOLS = [
   {
     name: "web_search",

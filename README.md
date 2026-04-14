@@ -1,21 +1,83 @@
-# Advisor Strategy Demo
+# advisor-strategy
 
-A live comparison of three Claude configurations on any research query:
+A live benchmark comparing three model configurations on the same research query — streaming in parallel, with full cost, latency, and quality metrics.
 
-| Variant | Model | Cost |
-|---------|-------|------|
-| Sonnet solo | claude-sonnet-4-6 | $ |
-| Sonnet + Opus advisor | claude-sonnet-4-6 + claude-opus-4-6 advisor | $$ |
-| Opus solo | claude-opus-4-6 | $$$ |
+![Advisor Strategy — three-column comparison dashboard](public/screenshot-hero.png)
 
-The advisor strategy pairs a cost-effective executor model with a frontier advisor that provides guidance on complex decisions without calling tools or producing output directly. This demo lets you see the cost/quality tradeoff empirically, in real time.
+## What it shows
 
-## What the metrics mean
+| Configuration | Cost | Quality | Notes |
+|---|---|---|---|
+| **Sonnet solo** | $0.24 | 8.0/10 | Baseline — full agentic loop, no advisor |
+| **Sonnet + Opus advisor** | $0.50 | 8.5/10 | Sweet spot — Opus consulted 2× on hard decisions |
+| **Opus solo** | $0.89 | 7.8/10 | Gold standard — full frontier cost |
 
-- **Cost** — estimated cost using current Anthropic pricing
-- **Advisor calls** — how many times the executor escalated to the Opus advisor
-- **Quality score** — rated 1–10 by a separate Opus judge on: source depth, reasoning, completeness, accuracy
-- **Quality %** — advisor score as a percentage of Opus score (the ceiling)
+Sonnet + Advisor achieved higher quality than Opus solo at 56% of the cost.
+
+---
+
+## The Advisor Strategy
+
+The [Advisor Strategy](https://claude.com/blog/the-advisor-strategy) is a multi-model orchestration pattern where a capable executor model (Sonnet) drives the full agentic loop, but escalates to a more powerful model (Opus) via a dedicated tool call — only for decisions that actually warrant it.
+
+```json
+{
+  "type": "advisor_20260301",
+  "name": "advisor",
+  "model": "claude-opus-4-6",
+  "max_uses": 5
+}
+```
+
+Required beta header: `anthropic-beta: advisor-tool-2026-03-01`
+
+The executor stays in control. The advisor provides targeted judgment exactly where it changes the result. Advisor calls surface in the stream as `server_tool_use`; token cost lands in `message_delta.usage.iterations[]` where `type === "advisor_message"`, split into input/output for accurate billing at Opus rates ($15/$75 per million).
+
+---
+
+## Full dashboard
+
+![Full dashboard with quality breakdown and summary](public/screenshot-full.png)
+
+The bottom panel shows per-dimension quality scores (source depth, reasoning, completeness, accuracy) judged by a separate Opus call after all three runs complete. The summary bar compares cost side-by-side.
+
+---
+
+## Stack
+
+- **Next.js 15** — App Router, Server Components, route handlers
+- **TypeScript** — end to end
+- **Tailwind CSS v4** — custom design tokens via `@theme`
+- **Anthropic SDK** — baseline and Opus agents via `@anthropic-ai/sdk`
+- **Raw fetch** — advisor agent (SDK doesn't yet expose the advisor tool natively)
+- **Brave Search API** — web search tool execution
+- **SSE** — three parallel streaming agent runs to the client
+
+## Project structure
+
+```
+app/
+  page.tsx                   # Main UI — query input, three-column grid, quality chart
+  api/
+    research/
+      baseline/route.ts      # Sonnet solo agent — SSE stream
+      advisor/route.ts       # Sonnet + Opus advisor agent — SSE stream
+      opus/route.ts          # Opus solo agent — SSE stream
+    judge/route.ts           # Quality scoring — Opus as judge
+components/
+  ComparisonGrid.tsx          # Three-column layout
+  AgentColumn.tsx             # Per-agent streaming output + metrics
+  MetricsCard.tsx             # Cost / tokens / latency display
+  QualityChart.tsx            # Dimension breakdown bar chart
+lib/
+  agents/
+    baseline-agent.ts         # Sonnet agentic loop (SDK streaming)
+    advisor-agent.ts          # Sonnet + advisor loop (raw fetch, beta header)
+    opus-agent.ts             # Opus agentic loop (SDK streaming)
+    shared.ts                 # System prompts, tool definitions, web search/fetch
+  metrics.ts                  # Pricing constants, cost calculation, formatters
+  types.ts                    # Shared TypeScript types
+```
 
 ## Setup
 
@@ -23,21 +85,35 @@ The advisor strategy pairs a cost-effective executor model with a frontier advis
 git clone https://github.com/popand/advisor-strategy
 cd advisor-strategy
 npm install
-cp .env.example .env.local
-# Add your ANTHROPIC_API_KEY to .env.local
-# Optionally add BRAVE_API_KEY for live web search
+```
+
+Create `.env.local`:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-...
+BRAVE_API_KEY=...           # optional — falls back to placeholder results
+```
+
+```bash
 npm run dev
 ```
 
-Open `http://localhost:3000`.
+Open [http://localhost:3000](http://localhost:3000), enter a research query, and click **Run Comparison**.
 
 ## Notes
 
-- Web search falls back to a placeholder if `BRAVE_API_KEY` is not set. The agents still run and produce output using their training knowledge.
 - The advisor feature requires beta access: `anthropic-beta: advisor-tool-2026-03-01`
-- All three agents run in parallel — expect the full comparison to take 30–90 seconds
+- All three agents run in parallel — expect the full comparison to take 60–120 seconds depending on query complexity
+- Web search falls back to a placeholder if `BRAVE_API_KEY` is not set; agents still run using training knowledge
+- Quality scores are judged by a separate Opus call after all three runs complete — expect some variance across runs
 
 ## References
 
 - [The Advisor Strategy — Anthropic Blog](https://claude.com/blog/the-advisor-strategy)
 - [Anthropic API Docs](https://docs.anthropic.com)
+
+---
+
+Built by [Andrei Pop](https://www.linkedin.com/in/andreipop/) · Principal Engineer, [Alethia](https://alethiaintel.com)
+
+> Alethia Prism is the intelligence layer that identifies what is forming across systems, context, and time — so organizations can act before outcomes harden.

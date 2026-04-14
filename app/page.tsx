@@ -13,10 +13,13 @@ import type {
   JudgeResponse,
 } from "@/lib/types";
 
+type StreamItem =
+  | { kind: "token"; content: string }
+  | { kind: "advisor_call"; callNumber: number }
+  | { kind: "tool_call"; name: string; input: string };
+
 interface ColumnState {
-  tokens: string[];
-  advisorCalls: number[];
-  toolCalls: string[];
+  stream: StreamItem[];
   metrics: FinalMetrics | null;
   quality: QualityScore | null;
   isRunning: boolean;
@@ -24,9 +27,7 @@ interface ColumnState {
 }
 
 const emptyColumn = (): ColumnState => ({
-  tokens: [],
-  advisorCalls: [],
-  toolCalls: [],
+  stream: [],
   metrics: null,
   quality: null,
   isRunning: false,
@@ -95,18 +96,18 @@ export default function Home() {
           fullOutput += event.content;
           setColumn(variant, (prev) => ({
             ...prev,
-            tokens: [...prev.tokens, event.content],
+            stream: [...prev.stream, { kind: "token", content: event.content }],
             output: prev.output + event.content,
           }));
         } else if (event.type === "advisor_call") {
           setColumn(variant, (prev) => ({
             ...prev,
-            advisorCalls: [...prev.advisorCalls, event.callNumber],
+            stream: [...prev.stream, { kind: "advisor_call", callNumber: event.callNumber }],
           }));
         } else if (event.type === "tool_call") {
           setColumn(variant, (prev) => ({
             ...prev,
-            toolCalls: [...prev.toolCalls, event.name],
+            stream: [...prev.stream, { kind: "tool_call", name: event.name, input: event.input ?? "" }],
           }));
         } else if (event.type === "done") {
           setColumn(variant, (prev) => ({

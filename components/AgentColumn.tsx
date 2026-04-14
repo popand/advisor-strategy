@@ -5,13 +5,16 @@ import { useEffect, useRef } from "react";
 import { MetricsCard } from "./MetricsCard";
 import type { FinalMetrics, QualityScore } from "@/lib/types";
 
+type StreamItem =
+  | { kind: "token"; content: string }
+  | { kind: "advisor_call"; callNumber: number }
+  | { kind: "tool_call"; name: string; input: string };
+
 interface AgentColumnProps {
   title: string;
   subtitle: string;
   isSweet?: boolean;
-  tokens: string[];
-  advisorCalls: number[];
-  toolCalls: string[];
+  stream: StreamItem[];
   metrics: FinalMetrics | null;
   quality: QualityScore | null;
   isRunning: boolean;
@@ -21,9 +24,7 @@ export function AgentColumn({
   title,
   subtitle,
   isSweet,
-  tokens,
-  advisorCalls,
-  toolCalls,
+  stream,
   metrics,
   quality,
   isRunning,
@@ -34,7 +35,9 @@ export function AgentColumn({
     if (outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
-  }, [tokens]);
+  }, [stream]);
+
+  const isEmpty = stream.length === 0;
 
   return (
     <div
@@ -66,38 +69,44 @@ export function AgentColumn({
         ref={outputRef}
         className="flex-1 min-h-[280px] max-h-[400px] overflow-y-auto p-4 bg-black/40 font-mono text-xs leading-relaxed text-content"
       >
-        {tokens.length === 0 && !isRunning && (
+        {isEmpty && !isRunning && (
           <span className="text-content-muted">Output will appear here...</span>
         )}
-        {tokens.length === 0 && isRunning && (
-          <span className="text-content-muted">
-            <span className="inline-block w-1.5 h-3 bg-accent-primary animate-blink ml-0.5" />
-          </span>
+        {isEmpty && isRunning && (
+          <span className="inline-block w-1.5 h-3 bg-accent-primary animate-blink" />
         )}
-        {tokens.map((chunk, i) => (
-          <span key={i}>{chunk}</span>
-        ))}
-        {isRunning && tokens.length > 0 && (
+
+        {stream.map((item, i) => {
+          if (item.kind === "token") {
+            return <span key={i}>{item.content}</span>;
+          }
+          if (item.kind === "advisor_call") {
+            return (
+              <div key={i} className="my-1.5">
+                <span className="inline-block font-mono text-xs text-accent-primary bg-accent-primary/10 border border-accent-primary/20 rounded px-2 py-0.5">
+                  ↑ advisor call #{item.callNumber}
+                </span>
+              </div>
+            );
+          }
+          if (item.kind === "tool_call") {
+            const label = item.name === "web_search"
+              ? `⚙ search: "${item.input}"`
+              : `⚙ fetch: ${item.input}`;
+            return (
+              <div key={i} className="my-1.5">
+                <span className="inline-block font-mono text-xs text-content-muted bg-surface border border-divider rounded px-2 py-0.5 max-w-full truncate">
+                  {label}
+                </span>
+              </div>
+            );
+          }
+          return null;
+        })}
+
+        {isRunning && !isEmpty && (
           <span className="inline-block w-1.5 h-3 bg-accent-primary animate-blink ml-0.5" />
         )}
-
-        {/* Advisor call badges */}
-        {advisorCalls.map((n) => (
-          <div key={n} className="my-1">
-            <span className="inline-block font-mono text-xs text-accent-primary bg-accent-primary/10 border border-accent-primary/20 rounded px-2 py-0.5">
-              ↑ advisor call #{n}
-            </span>
-          </div>
-        ))}
-
-        {/* Tool call badges */}
-        {toolCalls.map((name, i) => (
-          <div key={i} className="my-1">
-            <span className="inline-block font-mono text-xs text-content-muted bg-surface border border-divider rounded px-2 py-0.5">
-              ⚙ {name}
-            </span>
-          </div>
-        ))}
       </div>
 
       {/* Metrics */}

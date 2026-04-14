@@ -2,10 +2,13 @@
 import { AgentColumn } from "./AgentColumn";
 import type { FinalMetrics, QualityScore } from "@/lib/types";
 
+type StreamItem =
+  | { kind: "token"; content: string }
+  | { kind: "advisor_call"; callNumber: number }
+  | { kind: "tool_call"; name: string; input: string };
+
 interface ColumnState {
-  tokens: string[];
-  advisorCalls: number[];
-  toolCalls: string[];
+  stream: StreamItem[];
   metrics: FinalMetrics | null;
   quality: QualityScore | null;
   isRunning: boolean;

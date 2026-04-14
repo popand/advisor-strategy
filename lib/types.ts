@@ -6,7 +6,9 @@ export interface MetricsSnapshot {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
-  advisorTokens: number; // 0 for non-advisor variants
+  advisorInputTokens: number;  // 0 for non-advisor variants
+  advisorOutputTokens: number; // 0 for non-advisor variants
+  advisorTokens: number; // total = input + output, for display
   advisorCalls: number;  // 0 for non-advisor variants
   toolCalls: number;
   elapsedMs: number;
@@ -36,7 +38,7 @@ export interface RunResult {
 export type SSEEvent =
   | { type: "token"; content: string }
   | { type: "advisor_call"; callNumber: number }
-  | { type: "tool_call"; name: string }
+  | { type: "tool_call"; name: string; input?: string }
   | { type: "metrics"; data: MetricsSnapshot }
   | { type: "done"; finalMetrics: FinalMetrics }
   | { type: "error"; message: string };
