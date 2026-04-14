@@ -8,13 +8,13 @@ A live benchmark comparing three model configurations on the same research query
 
 ## What it shows
 
-| Configuration | Cost | Quality | Notes |
-|---|---|---|---|
-| **Sonnet solo** | $0.24 | 8.0/10 | Baseline — full agentic loop, no advisor |
-| **Sonnet + Opus advisor** | $0.50 | 8.5/10 | Sweet spot — Opus consulted 2× on hard decisions |
-| **Opus solo** | $0.89 | 7.8/10 | Gold standard — full frontier cost |
+| Configuration | Cost | Quality | Latency | Notes |
+|---|---|---|---|---|
+| **Sonnet solo** | $0.17 | 7.8/10 | 88.0s | Baseline — full agentic loop, no advisor |
+| **Sonnet + Opus advisor** | $0.63 | 8.5/10 | 187.5s | Sweet spot — Opus consulted 2× on hard decisions |
+| **Opus solo** | $1.50 | 8.5/10 | 98.8s | Gold standard — full frontier cost |
 
-Sonnet + Advisor achieved higher quality than Opus solo at 56% of the cost.
+Sonnet + Advisor matched Opus quality at 42% of the cost.
 
 ---
 
